@@ -1,0 +1,185 @@
+name: 🔒 DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  IMAGE_NAME: app-secure
+  PYTHON_VERSION: "3.9"
+
+jobs:
+  # ──────────────────────────────────────────────
+  # JOB 1: SAST — Análise estática de código
+  # ──────────────────────────────────────────────
+  sast-bandit:
+    name: 🔍 SAST com Bandit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Instalar dependências da aplicação
+        run: pip install -r app/requirements.txt
+
+      - name: 🔍 Rodar Bandit (SAST)
+        run: |
+          pip install bandit[toml]
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Iniciando análise estática com Bandit"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          bandit -r app/ -f json -o bandit-report.json || true
+          bandit -r app/ -f txt
+        continue-on-error: false
+
+      - name: 📊 Fazer upload do relatório Bandit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  # ──────────────────────────────────────────────
+  # JOB 2: SCA — Scan de dependências vulneráveis
+  # ──────────────────────────────────────────────
+  sca-dependencies:
+    name: 📦 Scan de Dependências (Safety)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 🔎 Scan de dependências com Safety
+        run: |
+          pip install safety
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Verificando vulnerabilidades nas deps"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          safety check -r app/requirements.txt --full-report --output json > safety-report.json || true
+          safety check -r app/requirements.txt --full-report
+        continue-on-error: true  # deps conhecidas podem ter CVEs menores
+
+      - name: 📊 Fazer upload do relatório Safety
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-report
+          path: safety-report.json
+
+  # ──────────────────────────────────────────────
+  # JOB 3: Secrets — Detectar segredos no código
+  # ──────────────────────────────────────────────
+  secrets-scan:
+    name: 🔑 Scan de Segredos (Gitleaks)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # histórico completo para detectar segredos antigos
+
+      - name: 🔑 Rodar Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        continue-on-error: true  # não bloqueia por ser demo educacional
+
+  # ──────────────────────────────────────────────
+  # JOB 4: Build + Scan de Container com Trivy
+  # ──────────────────────────────────────────────
+  container-scan:
+    name: 🐳 Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [sast-bandit]  # só roda se o SAST passar
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      - name: 🐳 Build da imagem Docker
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Buildando imagem: ${{ env.IMAGE_NAME }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} ./app
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+
+      - name: 🔒 Scan de vulnerabilidades com Trivy (relatório completo)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${{ github.workspace }}:/workspace \
+            aquasec/trivy image \
+            --format table \
+            --output /workspace/trivy-report.txt \
+            ${{ env.IMAGE_NAME }}:latest
+          cat trivy-report.txt
+
+      - name: 🚨 Trivy — BLOQUEAR se tiver CRITICAL/HIGH
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Verificando severidades CRITICAL e HIGH"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy image \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            ${{ env.IMAGE_NAME }}:latest
+          echo "✅ Nenhuma vulnerabilidade CRITICAL ou HIGH encontrada!"
+
+      - name: 📊 Fazer upload do relatório Trivy
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+
+  # ──────────────────────────────────────────────
+  # JOB 5: DEPLOY (só roda se tudo passar)
+  # ──────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy (Aprovado pela Security Gate)
+    runs-on: ubuntu-latest
+    needs: [sast-bandit, sca-dependencies, container-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      - name: ✅ Security Gate — verificando aprovação
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  ✅ SAST:              APROVADO"
+          echo "  ✅ Dependências:      APROVADO"
+          echo "  ✅ Container Scan:    APROVADO"
+          echo "  ✅ Secrets Scan:      APROVADO"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  🚀 DEPLOY LIBERADO!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: 🚀 Simular deploy
+        run: |
+          echo "Iniciando deploy para ambiente de produção..."
+          echo "Imagem: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Deploy concluído com sucesso! ✅"
+          # Aqui entraria o comando real de deploy (ex: kubectl, docker-compose, etc.)

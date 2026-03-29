@@ -1,0 +1,39 @@
+# Ambientes virtuais Python
+venv/
+.venv/
+env/
+.env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Relatórios de segurança gerados localmente
+bandit-report.json
+safety-report.json
+trivy-report.txt
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.dockerignore
+
+# Logs
+*.log
+
+# Variáveis de ambiente (NUNCA commitar!)
+.env
+.env.local
+.env.production
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
