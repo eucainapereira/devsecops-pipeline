@@ -1,6 +1,6 @@
 # 🔒 DevSecOps Pipeline — Secure CI/CD com GitHub Actions
 
-[![DevSecOps Pipeline](https://github.com/SEU_USUARIO/devsecops-pipeline/actions/workflows/pipeline.yml/badge.svg)](https://github.com/SEU_USUARIO/devsecops-pipeline/actions/workflows/pipeline.yml)
+[![DevSecOps Pipeline](https://github.com/eucainapereira/devsecops-pipeline/actions/workflows/pipeline.yml/badge.svg)](https://github.com/SEU_USUARIO/devsecops-pipeline/actions/workflows/pipeline.yml)
 [![Security Rating](https://img.shields.io/badge/Security-DevSecOps-green?logo=github-actions)](https://github.com/SEU_USUARIO/devsecops-pipeline)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
